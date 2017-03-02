@@ -1,6 +1,5 @@
 
 import tensorflow as tf
-import sugartensor as stf
 import numpy as np
 import librosa
 
@@ -551,7 +550,7 @@ class ConvLayer(LayerBase):
 
   def __init__(self, n_features=1, filter=1, d_row=-1, border_mode="valid",
                  stride=(1,1), pool_size=(1,1), filter_dilation=(1,1),
-                 activation="tanh",factor=1.0,,  transpose=False,**kwargs):
+                 activation="tanh",factor=1.0,  transpose=False,**kwargs):
 
   def convolution(self, inputs, filter_shape, stride, border_mode, factor, pool_size, filter_dilation):
     fan_in = numpy.prod(filter_shape[1:]) # stack_size * filter_row * filter_col
