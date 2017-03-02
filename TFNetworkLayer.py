@@ -550,10 +550,8 @@ class ConvLayer(LayerBase):
   layer_class = "conv"
 
   def __init__(self, n_features=1, filter=1, d_row=-1, border_mode="valid",
-                 conv_stride=(1,1), pool_size=(1,1), filter_dilation=(1,1), ignore_border=1,
-                 pool_stride=0, pool_padding=(0,0), mode="max",
-                 activation="tanh", dropout=0.0, factor=1.0, base = None, transpose=False,
-                 force_sample=False, **kwargs):
+                 stride=(1,1), pool_size=(1,1), filter_dilation=(1,1),
+                 activation="tanh",factor=1.0,,  transpose=False,**kwargs):
 
   def convolution(self, inputs, filter_shape, stride, border_mode, factor, pool_size, filter_dilation):
     fan_in = numpy.prod(filter_shape[1:]) # stack_size * filter_row * filter_col
@@ -579,7 +577,7 @@ class ConvLayer(LayerBase):
       op = tf.nn.conv2d_transpose(
         value=inputs.shape,
         filter=W.shape,
-        output_shape=
+        output_shape=["x", 0, "x", "x"],
         strides=stride,
         padding='SAME',
         data_format='NHWC',
@@ -587,7 +585,7 @@ class ConvLayer(LayerBase):
       conv_out = op(W, inputs, inputs[2:])
     else:
       conv_out = tf.layers.conv2d(
-        inputs=pool1,
+        inputs=inputs,
         filters=W,
         kernel_size=filter_shape,
         padding="same",
