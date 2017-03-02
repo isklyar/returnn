@@ -544,25 +544,58 @@ class FsaLayer(LayerBase):
     """
     super(FsaLayer, self).__init__(**kwargs)
     # TODO...
-class DilatedLayer(LayerBase):
-  layer_class = "dilation"
 
-  def __init__(self, **kwargs):
+    
+class ConvLayer(LayerBase):
+  layer_class = "conv"
 
-    super(DilatedLayer, self).__init__(**kwargs)
-    kwargs['n_out'] = 1
+  def __init__(self, n_features=1, filter=1, d_row=-1, border_mode="valid",
+                 conv_stride=(1,1), pool_size=(1,1), filter_dilation=(1,1), ignore_border=1,
+                 pool_stride=0, pool_padding=(0,0), mode="max",
+                 activation="tanh", dropout=0.0, factor=1.0, base = None, transpose=False,
+                 force_sample=False, **kwargs):
 
-  # Computes a 1-D convolution given 3-D input and filter tensors
-  def conv2d(x, W, b, strides=1):
-    # Conv2D wrapper, with bias and relu activation
-    #data = VCTK(batch_size=batch_size)
-    # mfcc feature of audio
-    #x = data.mfcc
+  def convolution(self, inputs, filter_shape, stride, border_mode, factor, pool_size, filter_dilation):
+    fan_in = numpy.prod(filter_shape[1:]) # stack_size * filter_row * filter_col
+    fan_out = (filter_shape[0] * numpy.prod(filter_shape[2:]) / numpy.prod(pool_size))
+    # (n_features * (filter_row * filter_col)) / (pool_size[0] * pool_size[1])
 
-    seq_len = stf.not_equal(x.sg_sum(dims=2), 0.).sg_int().sg_sum(dims=1)
+    W_bound = numpy.sqrt(6. / (fan_in + fan_out)) * factor
+    if self.base:
+      W = self.add_param(self.base[0].W)
+    else:
+      W = self.add_param(
+        self.shared(
+          value=numpy.asarray(
+            self.rng.uniform(low=-W_bound, high=W_bound, size=filter_shape),
+            dtype='float32'
+          ),
+          borrow=True,
+          name="W_conv_" + self.name
+        )
+      )
+    self.W = W
+    if self.transpose:
+      op = tf.nn.conv2d_transpose(
+        value=inputs.shape,
+        filter=W.shape,
+        output_shape=
+        strides=stride,
+        padding='SAME',
+        data_format='NHWC',
+        name=None)
+      conv_out = op(W, inputs, inputs[2:])
+    else:
+      conv_out = tf.layers.conv2d(
+        inputs=pool1,
+        filters=W,
+        kernel_size=filter_shape,
+        padding="same",
+        activation=tf.nn.relu)
+    conv_out.name = "conv_out_" + self.name
+    conv_out = self.calculate_index(conv_out)
+    return conv_out
 
-    # target sentence label
-    #y = data.label
 
   def res_block(tensor, size, rate, dim=n_dim):
 
