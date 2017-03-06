@@ -546,52 +546,113 @@ class FsaLayer(LayerBase):
 
     
 class ConvLayer(LayerBase):
-  layer_class = "conv"
+    recurrent = True
+    layer_class = "conv"
 
-  def __init__(self, n_features=1, filter=1, d_row=-1, border_mode="valid",
-                 stride=(1,1), pool_size=(1,1), filter_dilation=(1,1),
-                 activation="tanh",factor=1.0,  transpose=False,**kwargs):
+  def __init__(self, n_features=1, filter=1, d_row=-1, filter_dilation=(1, 1),
+               activation="tanh", factor=1.0, base=None, transpose=False, **kwargs):
 
-  def convolution(self, inputs, filter_shape, stride, border_mode, factor, pool_size, filter_dilation):
-    fan_in = numpy.prod(filter_shape[1:]) # stack_size * filter_row * filter_col
-    fan_out = (filter_shape[0] * numpy.prod(filter_shape[2:]) / numpy.prod(pool_size))
-    # (n_features * (filter_row * filter_col)) / (pool_size[0] * pool_size[1])
+      super(ConvLayer, self).__init__(**kwargs)
+      self.base = base
+      src = self.sources
+      self.transpose = transpose
 
-    W_bound = numpy.sqrt(6. / (fan_in + fan_out)) * factor
-    if self.base:
-      W = self.add_param(self.base[0].W)
-    else:
-      W = self.add_param(
-        self.shared(
-          value=numpy.asarray(
-            self.rng.uniform(low=-W_bound, high=W_bound, size=filter_shape),
-            dtype='float32'
-          ),
-          borrow=True,
-          name="W_conv_" + self.name
+      dimension = src[0].attrs["n_out"]  # input dimension
+
+      if self.status[0]:  # if the previous layer is convolution layer
+        stack_size = src[0].attrs["n_features"]  # set stack size from the number of feature maps of previous layer
+        d_row = src[0].attrs["d_row"]
+        dimension /= stack_size
+
+        # check whether the number of inputs is more than 1 and not resnet for inception
+        if self.status[1] != 1 and (not is_resnet):
+          # check the spatial dimension of all inputs
+          assert all((s.attrs["n_out"] / s.attrs["n_features"]) == dimension
+                     for s in src), \
+            "The spatial dimension of all inputs have to be the same!"
+          stack_size = sum([s.attrs["n_features"] for s in src])  # set the stack_size by concatenating feature maps
+      else:  # not convolution layer
+        stack_size = 1  # set stack_size of first convolution layer as channel of the image (gray scale image)
+
+        if self.is_1d:  # for processing entire image at once
+          if d_row == -1:
+            d_row = dimension
+          else:
+            stack_size = dimension
+        elif d_row == -1:
+          d_row = int(sqrt(dimension))
+
+        assert self.status[1] == 1, "Except CNN, the input is only one!"
+
+      # calculate the width of input
+      d_col = dimension / d_row
+
+      # filter shape is tuple/list of length 4 which is (nb feature maps, stack size, filter row, filter col)
+      self.filter_shape = (n_features, stack_size, filter[0], filter[1])
+      self.filter_dilation = filter_dilation
+      self.input_shape = [d_row, d_col]
+
+      # set attributes
+      self.set_attr("n_features", n_features)
+      self.set_attr("d_row", new_d_row)  # number of output row
+
+  def calculate_index(self, inputs):
+    if inputs.ndim == 3:  # TBD
+      return T.set_subtensor(
+        inputs[((numpy.int8(1) - self.index.flatten()) > 0).nonzero()],
+        T.zeros_like(inputs[0])
+      )
+    else:  # assume BFHW
+      B = inputs.shape[0]
+      inputs = inputs.dimshuffle(3, 0, 1, 2)  # WBFH
+      inputs = self.calculate_index(
+        inputs.reshape(
+          (inputs.shape[0] * inputs.shape[1],
+           inputs.shape[2],
+           inputs.shape[3])
         )
       )
-    self.W = W
-    if self.transpose:
-      op = tf.nn.conv2d_transpose(
-        value=inputs.shape,
-        filter=W.shape,
-        output_shape=["x", 0, "x", "x"],
-        strides=stride,
-        padding='SAME',
-        data_format='NHWC',
-        name=None)
-      conv_out = op(W, inputs, inputs[2:])
-    else:
-      conv_out = tf.layers.conv2d(
-        inputs=inputs,
-        filters=W,
-        kernel_size=filter_shape,
-        padding="same",
-        activation=tf.nn.relu)
-    conv_out.name = "conv_out_" + self.name
-    conv_out = self.calculate_index(conv_out)
-    return conv_out
+      return inputs.reshape((inputs.shape[0] / B, B, inputs.shape[1],
+                             inputs.shape[2])).dimshuffle(1, 2, 3, 0)
+  def convolution(self, inputs, filter_shape, stride, factor, filter_dilation):
+      fan_in = numpy.prod(filter_shape[1:])  # stack_size * filter_row * filter_col
+
+
+      W_bound = numpy.sqrt(6. / (fan_in + fan_out)) * factor
+      if self.base:
+        W = self.add_param(self.base[0].W)
+      else:
+        W = self.add_param(
+          self.shared(
+            value=numpy.asarray(
+              self.rng.uniform(low=-W_bound, high=W_bound, size=filter_shape),
+              dtype='float32'
+            ),
+            borrow=True,
+            name="W_conv_" + self.name
+          )
+        )
+      self.W = W
+      if self.transpose:
+        op = tf.nn.conv2d_transpose(
+          value=inputs.shape,
+          filter=W.shape,
+          output_shape=["x", 0, "x", "x"],
+          strides=stride,
+          padding='SAME',
+          data_format='NHWC',
+          name=None)
+        conv_out = op(W, inputs, inputs[2:])
+      else:
+        conv_out = tf.layers.conv2d(
+          inputs=inputs,
+          filters=W,
+          kernel_size=filter_shape,
+          padding="same",
+          activation=tf.nn.relu)
+      conv_out.name = "conv_out_" + self.name
+      conv_out = self.calculate_index(conv_out)
+      return conv_out
 
 
   def res_block(tensor, size, rate, dim=n_dim):
