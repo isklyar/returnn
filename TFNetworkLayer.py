@@ -550,7 +550,7 @@ class ConvLayer(LayerBase):
   layer_class = "conv"
 
   def __init__(self, activation, with_bias=True, **kwargs):
-    super(LayerBase, self).__init__(**kwargs)
+    super(ConvLayer, self).__init__(**kwargs)
 
     /*self.activation = activation*/
     self.with_bias = with_bias
