@@ -546,79 +546,71 @@ class FsaLayer(LayerBase):
 
     
 class ConvLayer(LayerBase):
-    recurrent = False
-  layer_class = "conv"
+  recurrent = False
+layer_class = "conv"
 
-  def __init__(self, activation, with_bias=True, **kwargs):
-    super(ConvLayer, self).__init__(**kwargs)
+def __init__(self,convolution, stride=1, with_bias=True, **kwargs):
+  super(ConvLayer, self).__init__(**kwargs)
 
-    /*self.activation = activation*/
-    self.with_bias = with_bias
 
-    input_data = self.input_data
-    n_in = input_data.dim
-    n_out = self.output.dim
-    assert n_in and n_out, "%r and %r" % (input_data, self.output)
+  self.with_bias = with_bias
+  self.convolution = convolution
 
-    W = self.add_param(
-      tf.Variable(
-        name="W",
-        initial_value=tf.contrib.layers.xavier_initializer(seed=self.network.random.randint(2**31))(
-          shape=(n_in, n_out))))
+
+  input_data = self.input_data
+  n_in = input_data.dim
+  n_out = self.output.dim
+  assert n_in and n_out, "%r and %r" % (input_data, self.output)
+
+  W = self.add_param(
+    tf.Variable(
+      name="W",
+      initial_value=tf.contrib.layers.xavier_initializer(seed=self.network.random.randint(2 ** 31))(
+        shape=(n_in, n_out))))
+
+  if self.with_bias:
+    b = self.add_param(tf.Variable(
+      name="b",
+      initial_value=tf.constant_initializer(value=0, dtype=tf.float32)(
+        shape=(n_out,))))
+  else:
+    b = None
+
+  with tf.name_scope("conv"):
+    from TFUtil import dot
+    x = input_data.placeholder
+    ndim = x.get_shape().ndims
+
+    if self.input_data.sparse:
+      x = tf.nn.embedding_lookup(W, x)
+      ndim += 1
+    else:
+      x = dot(x, W)
+    assert x.get_shape().ndims == ndim
 
     if self.with_bias:
-      b = self.add_param(tf.Variable(
-        name="b",
-        initial_value=tf.constant_initializer(value=0, dtype=tf.float32)(
-          shape=(n_out,))))
+      x = tf.add(x, b, name="add_bias")
+      assert x.get_shape().ndims == ndim
+  if self.convolution:
+
+    self.W = W
+    if self.transpose:
+      op = tf.nn.conv2d_transpose(
+        value=n_in.shape,
+        filter=W.shape,
+        output_shape=["x", 0, "x", "x"],
+        strides=stride,
+        padding='SAME',
+        data_format='NHWC',
+        name=None)
+      conv_out = op(W, n_in, n_in[2:])
     else:
-      b = None
+      conv_out = tf.nn.conv1d(x, W, stride=stride, padding='VALID') + b
 
-    with tf.name_scope("conv"):
-   
-
-    self.output.batch_dim_axis = self.input_data.batch_dim_axis
-    self.output.time_dim_axis = self.input_data.time_dim_axis
-    self.output.placeholder = x
-
-
-  def res_block(tensor, size, rate, dim=n_dim):
-
-    conv_filter = tensor.sg_aconv1d(size=size, rate=rate, act='tanh', bn=True)
-    conv_gate = tensor.sg_aconv1d(size=size, rate=rate, act='sigmoid', bn=True)
-    out = conv_filter * conv_gate
-    out = out.sg_conv1d(size=1, dim=dim, act='tanh', bn=True)
-    return out + tensor, out
-
-  # expand dimension
-  z = x.sg_conv1d(size=1, dim=n_dim, act='tanh', bn=True)
-
-  # dilated conv block loop
-  skip = 0  # skip connections
-  for i in range(num_blocks):
-    for r in [1, 2, 4, 8, 16]:
-      z, s = res_block(z, size=7, rate=r)
-      skip += s
-
-  # final logit layers
-  logit = (skip
-           .sg_conv1d(size=1, act='tanh', bn=True)
-           .sg_conv1d(size=1, dim=voca_size))
-
-  loss = logit.sg_ctc(target=y, seq_len=seq_len)
-  decoded, _ = tf.nn.ctc_beam_search_decoder(logit.sg_transpose(perm=[1, 0, 2]), seq_len, merge_repeated=False)
-  y = tf.sparse_to_dense(decoded[0].indices, decoded[0].shape, decoded[0].values) + 1
-
-  #
-  # regcognize wave file
-  #
-
-  tf.sg_arg_def(file=('', 'speech wave file to recognize.'))
-  wav, sr = librosa.load(tf.sg_arg().file, mono=True)
-  mfcc = np.transpose(np.expand_dims(librosa.feature.mfcc(wav, sr), axis=0), [0, 2, 1])
-
-
-
+  #self.output.batch_dim_axis = self.input_data.batch_dim_axis
+  #self.output.time_dim_axis = self.input_data.time_dim_axis
+  self.output.placeholder = x
+  return conv_out
 
 class CombineLayer(LayerBase):
   layer_class = "combine"
