@@ -545,72 +545,50 @@ class FsaLayer(LayerBase):
     # TODO...
 
     
-class ConvLayer(LayerBase):
-  recurrent = False
-layer_class = "conv"
+class ConvLayer(_ConcatInputLayer):
+  recurrent = True
+  layer_class = "conv"
 
-def __init__(self,convolution, stride=1, with_bias=True, **kwargs):
-  super(ConvLayer, self).__init__(**kwargs)
-
-
-  self.with_bias = with_bias
-  self.convolution = convolution
+  def __init__(self,padding = "SAME", stride=1, with_bias=True, **kwargs):
+    super(ConvLayer, self).__init__(**kwargs)
 
 
-  input_data = self.input_data
-  n_in = input_data.dim
-  n_out = self.output.dim
-  assert n_in and n_out, "%r and %r" % (input_data, self.output)
+    self.with_bias = with_bias
 
-  W = self.add_param(
-    tf.Variable(
-      name="W",
-      initial_value=tf.contrib.layers.xavier_initializer(seed=self.network.random.randint(2 ** 31))(
-        shape=(n_in, n_out))))
 
-  if self.with_bias:
-    b = self.add_param(tf.Variable(
-      name="b",
-      initial_value=tf.constant_initializer(value=0, dtype=tf.float32)(
-        shape=(n_out,))))
-  else:
-    b = None
+    input_data = self.input_data
+    n_in = input_data.dim
+    n_out = self.output.dim
+    assert n_in and n_out, "%r and %r" % (input_data, self.output)
 
-  with tf.name_scope("conv"):
-    from TFUtil import dot
-    x = input_data.placeholder
-    ndim = x.get_shape().ndims
-
-    if self.input_data.sparse:
-      x = tf.nn.embedding_lookup(W, x)
-      ndim += 1
-    else:
-      x = dot(x, W)
-    assert x.get_shape().ndims == ndim
+    W = self.add_param(
+      tf.Variable(
+        name="W",
+        initial_value=tf.contrib.layers.xavier_initializer(seed=self.network.random.randint(2 ** 31))(
+          shape=(n_in, n_out))))
 
     if self.with_bias:
-      x = tf.add(x, b, name="add_bias")
-      assert x.get_shape().ndims == ndim
-  if self.convolution:
-
-    self.W = W
-    if self.transpose:
-      op = tf.nn.conv2d_transpose(
-        value=n_in.shape,
-        filter=W.shape,
-        output_shape=["x", 0, "x", "x"],
-        strides=stride,
-        padding='SAME',
-        data_format='NHWC',
-        name=None)
-      conv_out = op(W, n_in, n_in[2:])
+      b = self.add_param(tf.Variable(
+        name="b",
+        initial_value=tf.constant_initializer(value=0, dtype=tf.float32)(
+          shape=(n_out,))))
     else:
-      conv_out = tf.nn.conv1d(x, W, stride=stride, padding='VALID') + b
+      b = None
+
+    with tf.name_scope("conv"):
+      from TFUtil import dot
+      x = input_data.placeholder
+      ndim = x.get_shape().ndims
+
+      if self.with_bias:
+        x = tf.add(x, b, name="add_bias")
+        assert x.get_shape().ndims == ndim
+
+      self.output.placeholder = x
+      x = tf.nn.conv1d(x, W, stride=stride, padding=padding, data_format='HDF5')
 
   #self.output.batch_dim_axis = self.input_data.batch_dim_axis
   #self.output.time_dim_axis = self.input_data.time_dim_axis
-  self.output.placeholder = x
-  return conv_out
 
 class CombineLayer(LayerBase):
   layer_class = "combine"
