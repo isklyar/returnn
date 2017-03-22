@@ -549,23 +549,30 @@ class ConvLayer(_ConcatInputLayer):
   recurrent = True
   layer_class = "conv"
 
-  def __init__(self, filter=1, padding = "SAME", stride=1, with_bias=True, activation="relu", **kwargs):
+  def __init__(self, activation = "relu", with_bias = True, **kwargs):
     super(ConvLayer, self).__init__(**kwargs)
 
 
     self.with_bias = with_bias
+    self.activation = activation
+
 
 
     input_data = self.input_data
     n_in = input_data.dim
     n_out = self.output.dim
+    #set stride from dictionary
+    if self.params.has_key("stride"):
+      self.stride = self.params["stride"]
+
+
     assert n_in and n_out, "%r and %r" % (input_data, self.output)
-    #This part is taken from linearlayer.
-    f = self.add_param(
+    #set filter as trainable parameter
+    filter = self.add_param(
       tf.Variable(
         name="filter",
         initial_value=tf.contrib.layers.xavier_initializer(seed=self.network.random.randint(2 ** 31))(
-          shape=(n_in, n_out))))
+          shape=(self.params["filter_shape"]))))
 
     if self.with_bias:
       b = self.add_param(tf.Variable(
@@ -576,7 +583,7 @@ class ConvLayer(_ConcatInputLayer):
       b = None
 
     with tf.name_scope("conv"):
-      x = input_data.placeholder
+      x = tf.input_data.placeholder
       ndim = x.get_shape().ndims
 
       if self.with_bias:
@@ -585,7 +592,7 @@ class ConvLayer(_ConcatInputLayer):
 
       self.output.placeholder = x
       #I wasn't sure concerning data format, but as I saw from returnn-experiments tests, usually HDF5 is used.
-      x = tf.nn.conv1d(x, f, stride=stride, padding=padding, data_format='HDF5')
+      x = tf.nn.conv1d(x, filter, self.stride, padding = "SAME")
       self.output.placeholder = x
 
 class CombineLayer(LayerBase):
